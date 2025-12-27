@@ -5,6 +5,10 @@ React Native (Expo) app with Supabase Auth and Edge Functions.
 ## Setup
 1. Update `app.json` → `extra.supabaseAnonKey` with your anon key.
 2. iOS export requires Photos permission (already configured in `app.json`).
+3. Apply database migration:
+   ```bash
+   supabase db push
+   ```
 2. Install dependencies:
    ```bash
    npm install

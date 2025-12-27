@@ -11,6 +11,9 @@ import {
 } from 'react-native';
 import ViewShot from 'react-native-view-shot';
 import * as MediaLibrary from 'expo-media-library';
+import * as FileSystem from 'expo-file-system';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import SlideCard, { Slide } from '@/components/SlideCard';
 import { generateImage, invokeLLM } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
@@ -57,6 +60,14 @@ type FormState = {
   ctaSubtitle: string;
 };
 
+type Project = {
+  id: string;
+  title: string;
+  input: FormState;
+  slides: Slide[];
+  created_at: string;
+};
+
 const defaultForm: FormState = {
   topic: '',
   slideCount: 7,
@@ -86,6 +97,9 @@ export default function SlideGeneratorScreen() {
   const [slides, setSlides] = useState<Slide[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState('');
+  const [projectTitle, setProjectTitle] = useState('');
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectStatus, setProjectStatus] = useState('');
   const captureRefs = useRef<Array<ViewShot | null>>([]);
 
   const preset = useMemo(() => stylePresets[form.stylePreset], [form.stylePreset]);
@@ -315,6 +329,17 @@ CRITICAL REQUIREMENTS:
     await supabase.auth.signOut();
   };
 
+  const captureSlideUris = async () => {
+    const uris: string[] = [];
+    for (let i = 0; i < slides.length; i += 1) {
+      const ref = captureRefs.current[i];
+      if (!ref) continue;
+      const uri = await ref.capture?.({ format: 'png', quality: 1 });
+      if (uri) uris.push(uri);
+    }
+    return uris;
+  };
+
   const handleExportSlides = async () => {
     if (!slides.length || isExporting) return;
     setIsExporting(true);
@@ -327,14 +352,10 @@ CRITICAL REQUIREMENTS:
         return;
       }
 
-      for (let i = 0; i < slides.length; i += 1) {
-        const ref = captureRefs.current[i];
-        if (!ref) continue;
-        setExportStatus(`Saving slide ${i + 1} of ${slides.length}...`);
-        const uri = await ref.capture?.({ format: 'png', quality: 1 });
-        if (uri) {
-          await MediaLibrary.saveToLibraryAsync(uri);
-        }
+      const uris = await captureSlideUris();
+      for (let i = 0; i < uris.length; i += 1) {
+        setExportStatus(`Saving slide ${i + 1} of ${uris.length}...`);
+        await MediaLibrary.saveToLibraryAsync(uris[i]);
       }
 
       setExportStatus('Slides saved to your Photos.');
@@ -343,6 +364,104 @@ CRITICAL REQUIREMENTS:
     } finally {
       setIsExporting(false);
     }
+  };
+
+  const handleExportPdf = async () => {
+    if (!slides.length || isExporting) return;
+    setIsExporting(true);
+    setExportStatus('');
+
+    try {
+      const uris = await captureSlideUris();
+      const images = await Promise.all(
+        uris.map(async (uri) => {
+          const base64 = await FileSystem.readAsStringAsync(uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          return `data:image/png;base64,${base64}`;
+        })
+      );
+
+      const html = `
+        <html>
+          <head>
+            <style>
+              body { margin: 0; padding: 0; font-family: -apple-system, system-ui, sans-serif; }
+              .slide { page-break-after: always; width: 100%; height: 100%; }
+              img { width: 100%; height: auto; display: block; }
+            </style>
+          </head>
+          <body>
+            ${images.map((src) => `<div class="slide"><img src="${src}" /></div>`).join('')}
+          </body>
+        </html>
+      `;
+
+      setExportStatus('Preparing PDF...');
+      const pdf = await Print.printToFileAsync({ html });
+      await Sharing.shareAsync(pdf.uri);
+      setExportStatus('PDF ready to share.');
+    } catch (error) {
+      setExportStatus('PDF export failed. Please try again.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleSaveProject = async () => {
+    if (!slides.length) {
+      setProjectStatus('Generate slides before saving.');
+      return;
+    }
+
+    setProjectStatus('');
+    const fallbackTitle = form.topic.trim() || `Project ${new Date().toLocaleDateString()}`;
+    const title = projectTitle.trim() || fallbackTitle;
+
+    const { data, error: userError } = await supabase.auth.getUser();
+    if (userError || !data.user) {
+      setProjectStatus('You must be logged in to save projects.');
+      return;
+    }
+
+    const { error } = await supabase.from('projects').insert({
+      title,
+      input: form,
+      slides,
+      user_id: data.user.id,
+    });
+
+    if (error) {
+      setProjectStatus('Save failed. Please try again.');
+      return;
+    }
+
+    setProjectTitle('');
+    setProjectStatus('Project saved.');
+    await loadProjects();
+  };
+
+  const loadProjects = async () => {
+    setProjectStatus('Loading projects...');
+    const { data, error } = await supabase
+      .from('projects')
+      .select('id, title, input, slides, created_at')
+      .order('created_at', { ascending: false })
+      .limit(6);
+
+    if (error) {
+      setProjectStatus('Failed to load projects.');
+      return;
+    }
+
+    setProjects((data as Project[]) ?? []);
+    setProjectStatus('');
+  };
+
+  const handleLoadProject = (project: Project) => {
+    setForm(project.input);
+    setSlides(project.slides);
+    setProjectStatus(`Loaded "${project.title}".`);
   };
 
   return (
@@ -591,11 +710,58 @@ CRITICAL REQUIREMENTS:
                 {isExporting ? (
                   <ActivityIndicator color="#F97316" />
                 ) : (
-                  <Text style={styles.secondaryText}>Save Slides to Photos</Text>
+                  <Text style={styles.secondaryText}>Save PNGs to Photos</Text>
+                )}
+              </Pressable>
+              <Pressable
+                style={[styles.secondaryButton, isExporting && styles.secondaryButtonDisabled]}
+                onPress={handleExportPdf}
+                disabled={isExporting}
+              >
+                {isExporting ? (
+                  <ActivityIndicator color="#F97316" />
+                ) : (
+                  <Text style={styles.secondaryText}>Share as PDF</Text>
                 )}
               </Pressable>
               {exportStatus ? <Text style={styles.statusText}>{exportStatus}</Text> : null}
             </>
+          ) : null}
+
+          <View style={styles.sectionDivider} />
+          <Text style={styles.sectionTitle}>Projects</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Project name"
+            placeholderTextColor="#6B7280"
+            value={projectTitle}
+            onChangeText={setProjectTitle}
+          />
+          <View style={styles.row}>
+            <Pressable style={styles.primaryButtonSmall} onPress={handleSaveProject}>
+              <Text style={styles.primaryText}>Save Project</Text>
+            </Pressable>
+            <Pressable style={styles.secondaryButtonSmall} onPress={loadProjects}>
+              <Text style={styles.secondaryText}>Load Recent</Text>
+            </Pressable>
+          </View>
+          {projectStatus ? <Text style={styles.statusText}>{projectStatus}</Text> : null}
+
+          {projects.length > 0 ? (
+            <View style={styles.projectList}>
+              {projects.map((project) => (
+                <Pressable
+                  key={project.id}
+                  style={styles.projectItem}
+                  onPress={() => handleLoadProject(project)}
+                >
+                  <Text style={styles.projectTitle}>{project.title}</Text>
+                  <Text style={styles.projectMeta}>
+                    {new Date(project.created_at).toLocaleDateString()}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
           ) : null}
         </View>
 
@@ -770,6 +936,46 @@ const styles = StyleSheet.create({
   statusText: {
     marginTop: 12,
     color: '#9CA3AF',
+  },
+  sectionDivider: {
+    height: 1,
+    backgroundColor: '#1F1F1F',
+    marginTop: 24,
+  },
+  primaryButtonSmall: {
+    backgroundColor: '#F97316',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  secondaryButtonSmall: {
+    borderWidth: 1,
+    borderColor: '#F97316',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  projectList: {
+    marginTop: 12,
+  },
+  projectItem: {
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#1F1F1F',
+    backgroundColor: '#151515',
+    marginBottom: 8,
+  },
+  projectTitle: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+  projectMeta: {
+    color: '#6B7280',
+    fontSize: 12,
+    marginTop: 4,
   },
   results: {
     marginTop: 24,

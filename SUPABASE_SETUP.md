@@ -25,6 +25,11 @@ supabase functions deploy generate-slides
 supabase functions deploy generate-image
 ```
 
+## Database migration (projects)
+```bash
+supabase db push
+```
+
 ## Storage policy (recommended)
 - Public read on `slide-backgrounds`
 - Write access only via service role (Edge Function)
