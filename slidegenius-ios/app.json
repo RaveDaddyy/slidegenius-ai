@@ -1,0 +1,58 @@
+{
+  "expo": {
+    "name": "SlideGenius AI",
+    "slug": "slidegenius-ai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "slidegeniusai",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.slidegenius.ai",
+      "infoPlist": {
+        "NSPhotoLibraryAddUsageDescription": "Allow SlideGenius AI to save generated slides to your Photos.",
+        "NSPhotoLibraryUsageDescription": "Allow SlideGenius AI to access your Photos for export."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff",
+          "dark": {
+            "backgroundColor": "#000000"
+          }
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "supabaseUrl": "https://uzxfayggpcwmclqgmstq.supabase.co",
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InV6eGZheWdncGN3bWNscWdtc3RxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY2ODM1NTIsImV4cCI6MjA4MjI1OTU1Mn0.OnrQYbH31adYTlDHYr6NLLEuxBo8ViVta74HhB2Jc30",
+      "functionsBaseUrl": "https://uzxfayggpcwmclqgmstq.functions.supabase.co"
+    }
+  }
+}
