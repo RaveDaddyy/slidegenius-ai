@@ -30,12 +30,23 @@ Deno.serve(async (req) => {
       });
     }
 
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const authMeta = {
+      present: Boolean(authHeader),
+      bearer: authHeader.startsWith("Bearer "),
+      length: authHeader.length,
+      segments: authHeader.startsWith("Bearer ") ? authHeader.slice(7).split(".").length : 0,
+    };
+
     const { user, error: authError } = await requireUser(req);
     if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized", details: authError?.message ?? "Unknown", auth: authMeta }),
+        {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+        },
+      );
     }
 
     const body = await req.json().catch(() => ({}));
@@ -48,7 +59,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const openaiResponse = await fetch("https://api.openai.com/v1/images", {
+    const openaiResponse = await fetch("https://api.openai.com/v1/images/generations", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -57,8 +68,7 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         model: OPENAI_IMAGE_MODEL,
         prompt,
-        size: "1024x1792",
-        response_format: "b64_json",
+        size: "1024x1536",
       }),
     });
 
@@ -71,15 +81,30 @@ Deno.serve(async (req) => {
     }
 
     const openaiJson = await openaiResponse.json();
-    const imageData = openaiJson?.data?.[0]?.b64_json;
-    if (!imageData) {
+    const imageData = openaiJson?.data?.[0]?.b64_json ?? null;
+    const imageUrl = openaiJson?.data?.[0]?.url ?? null;
+    if (!imageData && !imageUrl) {
       return new Response(JSON.stringify({ error: "OpenAI response missing image data" }), {
         status: 502,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const bytes = base64ToBytes(imageData);
+    let bytes: Uint8Array;
+    if (imageData) {
+      bytes = base64ToBytes(imageData);
+    } else {
+      const imageResponse = await fetch(imageUrl);
+      if (!imageResponse.ok) {
+        const errorText = await imageResponse.text();
+        return new Response(JSON.stringify({ error: "Image download failed", details: errorText }), {
+          status: 502,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const buffer = await imageResponse.arrayBuffer();
+      bytes = new Uint8Array(buffer);
+    }
     const fileName = `${crypto.randomUUID()}.png`;
     const filePath = `generated/${fileName}`;
 

@@ -20,12 +20,23 @@ Deno.serve(async (req) => {
       });
     }
 
+    const authHeader = req.headers.get("Authorization") ?? "";
+    const authMeta = {
+      present: Boolean(authHeader),
+      bearer: authHeader.startsWith("Bearer "),
+      length: authHeader.length,
+      segments: authHeader.startsWith("Bearer ") ? authHeader.slice(7).split(".").length : 0,
+    };
+
     const { user, error: authError } = await requireUser(req);
     if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized", details: authError?.message ?? "Unknown", auth: authMeta }),
+        {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+        },
+      );
     }
 
     const body = await req.json().catch(() => ({}));
@@ -48,9 +59,9 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         model: OPENAI_MODEL,
         input: prompt,
-        response_format: {
-          type: "json_schema",
-          json_schema: {
+        text: {
+          format: {
+            type: "json_schema",
             name: "slides_schema",
             schema: responseJsonSchema,
           },
@@ -67,7 +78,11 @@ Deno.serve(async (req) => {
     }
 
     const openaiJson = await openaiResponse.json();
-    const outputText = openaiJson.output_text;
+    const outputText =
+      openaiJson.output_text ??
+      openaiJson.output?.[0]?.content?.[0]?.text ??
+      openaiJson.output?.[0]?.content?.[0]?.text?.value ??
+      null;
     if (!outputText) {
       return new Response(JSON.stringify({ error: "OpenAI response missing output_text" }), {
         status: 502,

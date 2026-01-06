@@ -4,7 +4,8 @@ import { Loader2, Download, Sparkles } from 'lucide-react';
 import InputForm from '@/components/slideshow/InputForm';
 import PreviewGallery from '@/components/slideshow/PreviewGallery';
 import SlideEditor from '@/components/slideshow/SlideEditor';
-import { base44 } from '@/api/base44Client';
+import { generateImage, invokeLLM } from '@/api/functions';
+import { supabase } from '@/api/supabaseClient';
 
 export default function SlideGenerator() {
   const [isGenerating, setIsGenerating] = useState(false);
@@ -134,15 +135,17 @@ Return ONLY valid JSON in this exact format:
   ]
 }`;
 
-      const textResult = await base44.integrations.Core.InvokeLLM({
+      const textResult = await invokeLLM({
         prompt: textPrompt,
         response_json_schema: {
           type: "object",
+          additionalProperties: false,
           properties: {
             slides: {
               type: "array",
               items: {
                 type: "object",
+                additionalProperties: false,
                 properties: {
                   index: { type: "number" },
                   headline: { type: "string" },
@@ -224,7 +227,7 @@ CRITICAL REQUIREMENTS:
 - Vertical composition optimized for mobile`;
         }
 
-        const imageResult = await base44.integrations.Core.GenerateImage({
+        const imageResult = await generateImage({
           prompt: imagePrompt
         });
 
@@ -249,8 +252,9 @@ CRITICAL REQUIREMENTS:
 
       setGenerationStep('');
     } catch (error) {
-      console.error('Generation error:', error);
-      setGenerationStep('Error generating slides. Please try again.');
+      const message = error instanceof Error ? error.message : JSON.stringify(error);
+      console.error('Generation error:', message, error);
+      setGenerationStep(`Error generating slides: ${message || 'Please try again.'}`);
     } finally {
       setIsGenerating(false);
     }
@@ -275,15 +279,24 @@ CRITICAL REQUIREMENTS:
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex items-center gap-3"
+            className="flex items-center justify-between gap-3"
           >
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-rose-500 flex items-center justify-center">
-              <Sparkles className="w-5 h-5 text-white" />
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-orange-500 to-rose-500 flex items-center justify-center">
+                <Sparkles className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-semibold tracking-tight">Slide Studio</h1>
+                <p className="text-sm text-white/40">Design-ready social slides in seconds</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">Slide Studio</h1>
-              <p className="text-sm text-white/40">Design-ready social slides in seconds</p>
-            </div>
+            <button
+              type="button"
+              onClick={() => supabase.auth.signOut()}
+              className="text-sm text-white/50 hover:text-white transition-colors"
+            >
+              Sign out
+            </button>
           </motion.div>
         </div>
       </header>
